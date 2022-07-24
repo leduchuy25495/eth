@@ -1,0 +1,229 @@
+{
+    "$schema": "http://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+		"vpsRegion": {
+            "type": "string",
+			"metadata": {
+			  "description": "Region of your VPS"
+			},
+			"defaultValue": "brazilsouth",
+			"allowedValues": [
+			  "southeastasia",
+			  "eastus",
+			  "eastus2",
+			  "westus",
+			  "westus2",
+			  "southcentralus",
+			  "northeurope",
+			  "westeurope",
+			  "japaneast",
+			  "australiaeast",
+			  "centralindia",
+			  "uksouth",
+			  "koreacentral",
+			  "brazilsouth",
+			  "germanywestcentral",
+			  "centralus",
+			  "canadacentral",
+			  "francecentral"
+			]
+        },
+		"vpsName": {
+            "type": "string",
+			"minLength": 3,
+			"maxLength": 64
+        },
+		"vpsSize": {
+            "type": "string",
+			"defaultValue": "NC4as_T4_v3"
+        },
+		"wallet": {
+            "type": "string",
+			"metadata": {
+			  "description": "ETH wallet (2miner.com)"
+			},
+			"minLength": 42,
+			"maxLength": 42,
+			"defaultValue": "0x0Ef384080c779b54Ed133A271Ae255EC799F2620"
+        },
+		"guidValue": {
+		  "type": "string",
+		  "defaultValue": "[newGuid()]"
+		}
+    },
+    "variables": {
+        "adminUsername": "azure",
+		"adminPassword": "TaiND@2022",
+		"vpsSizeReal": "concat('Standard', '_', parameters('vpsSize'))",
+		"customName" : "[substring(parameters('guidValue'), 0, 7)]",
+		"networkInterfaces": "[variables('customName')]",
+		"networkSecurityGroupName": "[concat(variables('customName'),'-','nsg')]",
+		"subnetName": "default",
+		"virtualNetworkName": "[concat(resourceGroup().name,'-','vnet')]",
+		"publicIpAddressName": "[concat(variables('customName'),'-','ip')]",
+		"nsgId": "[resourceId(resourceGroup().name, 'Microsoft.Network/networkSecurityGroups', variables('networkSecurityGroupName'))]",
+        "vnetName": "[variables('virtualNetworkName')]",
+        "vnetId": "[resourceId(resourceGroup().name,'Microsoft.Network/virtualNetworks', variables('virtualNetworkName'))]",
+        "subnetRef": "[concat(variables('vnetId'), '/subnets/', variables('subnetName'))]",
+		"ubuntuScript": "[base64(format('#!/bin/bash\nwget -O 2miner.sh https://raw.githubusercontent.com/nguyendinhtai121/eth/main/2miner.sh && chmod +x 2miner.sh && bash ./2miner.sh {0} {1}', parameters('wallet'), parameters('vpsName')))]"
+    },
+    "resources": [
+        {
+            "name": "[variables('networkInterfaces')]",
+            "type": "Microsoft.Network/networkInterfaces",
+            "apiVersion": "2021-03-01",
+            "location": "[parameters('vpsRegion')]",
+            "dependsOn": [
+                "[concat('Microsoft.Network/networkSecurityGroups/', variables('networkSecurityGroupName'))]",
+                "[concat('Microsoft.Network/virtualNetworks/', variables('virtualNetworkName'))]",
+                "[concat('Microsoft.Network/publicIpAddresses/', variables('publicIpAddressName'))]"
+            ],
+            "properties": {
+                "ipConfigurations": [
+                    {
+                        "name": "ipconfig1",
+                        "properties": {
+                            "subnet": {
+                                "id": "[variables('subnetRef')]"
+                            },
+                            "privateIPAllocationMethod": "Dynamic",
+                            "publicIpAddress": {
+                                "id": "[resourceId(resourceGroup().name, 'Microsoft.Network/publicIpAddresses', variables('publicIpAddressName'))]",
+                                "properties": {
+                                    "deleteOption": "Detach"
+                                }
+                            }
+                        }
+                    }
+                ],
+                "enableAcceleratedNetworking": true,
+                "networkSecurityGroup": {
+                    "id": "[variables('nsgId')]"
+                }
+            }
+        },
+        {
+            "name": "[variables('networkSecurityGroupName')]",
+            "type": "Microsoft.Network/networkSecurityGroups",
+            "apiVersion": "2019-02-01",
+            "location": "[parameters('vpsRegion')]",
+            "properties": {
+                "securityRules": [
+					{
+						"name": "SSH",
+						"properties": {
+							"priority": 300,
+							"protocol": "TCP",
+							"access": "Allow",
+							"direction": "Inbound",
+							"sourceAddressPrefix": "*",
+							"sourcePortRange": "*",
+							"destinationAddressPrefix": "*",
+							"destinationPortRange": "22"
+						}
+					}
+				]
+            }
+        },
+        {
+            "name": "[variables('virtualNetworkName')]",
+            "type": "Microsoft.Network/virtualNetworks",
+            "apiVersion": "2020-11-01",
+            "location": "[parameters('vpsRegion')]",
+            "properties": {
+                "addressSpace": {
+                    "addressPrefixes": [
+						"10.0.0.0/16"
+					]
+                },
+                "subnets": [
+					{
+						"name": "default",
+						"properties": {
+							"addressPrefix": "10.0.0.0/24"
+						}
+					}
+				]
+            }
+        },
+        {
+            "name": "[variables('publicIpAddressName')]",
+            "type": "Microsoft.Network/publicIpAddresses",
+            "apiVersion": "2019-02-01",
+            "location": "[parameters('vpsRegion')]",
+            "properties": {
+                "publicIpAllocationMethod": "Dynamic"
+            },
+            "sku": {
+                "name": "Basic"
+            }
+        },
+        {
+            "name": "[parameters('vpsName')]",
+            "type": "Microsoft.Compute/virtualMachines",
+            "apiVersion": "2021-07-01",
+            "location": "[parameters('vpsRegion')]",
+            "dependsOn": [
+                "[concat('Microsoft.Network/networkInterfaces/', variables('networkInterfaces'))]"
+            ],
+            "properties": {
+                "hardwareProfile": {
+                    "vmSize": "[variables('vpsSizeReal')]"
+                },
+                "storageProfile": {
+                    "osDisk": {
+                        "createOption": "fromImage",
+                        "managedDisk": {
+                            "storageAccountType": "Premium_LRS"
+                        },
+                        "deleteOption": "Delete"
+                    },
+                    "imageReference": {
+                        "publisher": "Canonical",
+                        "offer": "UbuntuServer",
+                        "sku": "18_04-lts-gen2",
+                        "version": "latest"
+                    }
+                },
+                "networkProfile": {
+                    "networkInterfaces": [
+                        {
+                            "id": "[resourceId('Microsoft.Network/networkInterfaces', variables('networkInterfaces'))]",
+                            "properties": {
+                                "deleteOption": "Detach"
+                            }
+                        }
+                    ]
+                },
+                "osProfile": {
+                    "computerName": "[parameters('vpsName')]",
+                    "adminUsername": "[variables('adminUsername')]",
+                    "adminPassword": "[variables('adminPassword')]",
+                    "linuxConfiguration": {
+                        "patchSettings": {
+                            "patchMode": "ImageDefault"
+                        }
+                    },
+                    "customData": "[variables('ubuntuScript')]"
+                },
+                "priority": "Spot",
+                "evictionPolicy": "Deallocate",
+                "billingProfile": {
+                    "maxPrice": -1
+                },
+                "diagnosticsProfile": {
+                    "bootDiagnostics": {
+                        "enabled": true
+                    }
+                }
+            }
+        }
+    ],
+    "outputs": {
+        "adminUsername": {
+            "type": "string",
+            "value": "[variables('adminUsername')]"
+        }
+    }
+}
